@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Жидкое стекло — WebGL-демо</title>
+<style>
+  :root { color-scheme: dark; --fg: #fff; --muted: rgba(255,255,255,.74); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0a0b1e; color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-text-size-adjust: 100%; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+
+  html, body { overflow-x: hidden; }
+  main { position: relative; z-index: 1; max-width: 760px; margin: 0 auto;
+    padding: max(28px, env(safe-area-inset-top)) 18px 150px; display: grid; gap: 16px;
+    grid-template-columns: minmax(0, 1fr); }
+  main > * { min-width: 0; }
+  h1 { margin: 12px 0 0; font-size: clamp(36px, 9vw, 58px); line-height: 1.02; letter-spacing: -.02em; }
+  .lead { margin: 6px 0 8px; color: var(--muted); font-size: 16px; line-height: 1.5; max-width: 56ch; }
+  h2 { margin: 18px 4px 0; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* Стеклянная панель: сам фон рисует шейдер, DOM-элемент задаёт только форму и содержимое */
+  .glass { position: relative; border-radius: 28px; padding: 20px; text-shadow: 0 1px 12px rgba(0,0,0,.25); }
+  .glass h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -.01em; }
+  .glass p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+
+  .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; font-weight: 600; margin-top: 10px; }
+  .row output { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,.28); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; margin-top: -9px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,.28); }
+  input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border: 0; border-radius: 50%; background: #fff; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip { font: 600 13px system-ui, sans-serif; color: var(--fg); background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.22); padding: 8px 13px; border-radius: 999px; cursor: pointer; }
+  .chip.on { background: rgba(255,255,255,.9); color: #10112a; border-color: transparent; }
+
+  .step { cursor: pointer; display: grid; gap: 4px; padding-left: 62px; outline: none; }
+  .step .num { position: absolute; left: 18px; top: 18px; width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700; font-size: 14px; background: rgba(255,255,255,.18); }
+  .step .tag { justify-self: start; margin-top: 8px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    background: rgba(255,255,255,.12); color: var(--muted); }
+  .step.active .tag { background: rgba(255,255,255,.9); color: #10112a; }
+  .step:focus-visible { box-shadow: 0 0 0 2px rgba(255,255,255,.8); }
+
+  pre { margin: 10px 0 0; padding: 14px; border-radius: 14px; background: rgba(0,0,0,.35); overflow-x: auto;
+    font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #dfe6ff; text-shadow: none; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.5; padding: 0 4px; }
+
+  .nav { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%);
+    bottom: calc(16px + env(safe-area-inset-bottom)); width: min(92vw, 430px); height: 68px;
+    border-radius: 34px; padding: 6px; display: flex; }
+  .nav button { position: relative; z-index: 1; flex: 1; border: 0; background: none; color: rgba(255,255,255,.65);
+    font: 600 13px system-ui, sans-serif; cursor: pointer; }
+  .nav button.on { color: #fff; }
+  .indicator { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc(25% - 3px); border-radius: 28px; padding: 0;
+    transition: left .5s cubic-bezier(.3,1.45,.5,1), width .5s cubic-bezier(.3,1.45,.5,1); pointer-events: none; }
+
+  .lens { position: fixed; z-index: 6; width: 150px; height: 150px; border-radius: 50%; padding: 0; cursor: grab;
+    touch-action: none; display: grid; place-items: center; user-select: none; -webkit-user-select: none; }
+  .lens span { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.7); pointer-events: none; }
+  .lens:active { cursor: grabbing; }
+
+  #err { display: none; position: relative; z-index: 2; margin: 12px 18px; padding: 12px 14px; border-radius: 12px;
+    background: rgba(255,80,80,.18); border: 1px solid rgba(255,120,120,.5); font-size: 13px; white-space: pre-wrap; }
+
+  /* Фолбэк без WebGL2: обычное матовое стекло */
+  .nogl body { background: radial-gradient(circle at 20% 10%, #3a2a8f, transparent 55%), radial-gradient(circle at 80% 60%, #0a7a9a, transparent 50%), #0a0b1e; }
+  .nogl #gl { display: none; }
+  .nogl .glass { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="err"></div>
+
+<main>
+  <header>
+    <h1>Жидкое стекло</h1>
+    <p class="lead">Живая WebGL-симуляция того же шейдера, что в Android-приложении. Панели не размывают снимок экрана — они честно преломляют анимированный фон.</p>
+  </header>
+
+  <section class="glass" data-bevel="28">
+    <h3>Настрой стекло</h3>
+    <p>Меняй параметры и переключай режимы — так видно, из чего складывается эффект.</p>
+    <div class="row"><span>Преломление</span><output id="o-ref"></output></div>
+    <input id="s-ref" type="range" min="0" max="60" step="1" value="30">
+    <div class="row"><span>Дисперсия</span><output id="o-dis"></output></div>
+    <input id="s-dis" type="range" min="0" max="0.35" step="0.01" value="0.12">
+    <div class="row"><span>Размытие</span><output id="o-blur"></output></div>
+    <input id="s-blur" type="range" min="0" max="16" step="0.5" value="5">
+    <div class="chips" id="chips">
+      <button class="chip on" data-mode="0">Итог</button>
+      <button class="chip" data-mode="4">Фон</button>
+      <button class="chip" data-mode="5">Расстояние</button>
+      <button class="chip" data-mode="1">Нормали</button>
+      <button class="chip" data-mode="2">Смещение</button>
+      <button class="chip" data-mode="3">Блики</button>
+    </div>
+  </section>
+
+  <h2>Как это работает</h2>
+
+  <section class="glass step" data-mode="4" role="button" tabindex="0">
+    <span class="num">1</span>
+    <h3>Фон — это формула</h3>
+    <p>Цветные пятна и сетка заданы функцией <b>background(x, y, t)</b>. Значит, цвет фона можно посчитать в любой точке — в том числе чуть левее или правее настоящей.</p>
+    <span class="tag">Показать: фон без стекла</span>
+  </section>
+
+  <section class="glass step" data-mode="5" role="button" tabindex="0">
+    <span class="num">2</span>
+    <h3>Форма — расстояние до края</h3>
+    <p>Для скруглённого прямоугольника считаем расстояние <b>d</b> до границы (SDF): внутри d &lt; 0, на краю 0. Это и маска панели, и мера «глубины» от кромки.</p>
+    <span class="tag">Показать: полосы расстояния</span>
+  </section>
+
+  <section class="glass step" data-mode="1" role="button" tabindex="0">
+    <span class="num">3</span>
+    <h3>Нормаль — куда «смотрит» кромка</h3>
+    <p>Градиент расстояния — вектор, перпендикулярный краю. Это нормаль поверхности: красный — вправо, зелёный — вниз. На ней держится и преломление, и свет.</p>
+    <span class="tag">Показать: нормали</span>
+  </section>
+
+  <section class="glass step" data-mode="2" role="button" tabindex="0">
+    <span class="num">4</span>
+    <h3>Смещение — само преломление</h3>
+    <p>Линза гнёт свет сильнее у края и почти не трогает центр: <b>смещение = нормаль × профиль(d) × сила</b>. Цвет берём из фона в смещённой точке — картинка у кромки «затягивается».</p>
+    <span class="tag">Показать: сила смещения</span>
+  </section>
+
+  <section class="glass step" data-mode="0" role="button" tabindex="0">
+    <span class="num">5</span>
+    <h3>Дисперсия и матовость</h3>
+    <p>Красный, зелёный и синий каналы читаются с чуть разным смещением — по краю появляется радужная кайма, как у настоящей призмы. Несколько соседних отсчётов усредняются — это размытие.</p>
+    <span class="tag">Показать: итог</span>
+  </section>
+
+  <section class="glass step" data-mode="3" role="button" tabindex="0">
+    <span class="num">6</span>
+    <h3>Свет — френель и блики</h3>
+    <p>Кромка светлее (эффект Френеля), а блик зависит от угла между нормалью и источником света: сверху-слева яркий, снизу-справа слабый отражённый. Плюс тонкая светлая окантовка.</p>
+    <span class="tag">Показать: только свет</span>
+  </section>
+
+  <section class="glass" data-bevel="24">
+    <h3>Ядро шейдера</h3>
+    <p>Всё, что делает стекло, — несколько строк:</p>
+<pre>float d  = sdRoundBox(p, halfSize, radius);   // &lt; 0 внутри
+vec2  n  = normalize(gradient(d));            // нормаль кромки
+float k  = pow(1.0 - clamp(-d/bevel, 0., 1.), 2.5);
+vec2  s  = n * k * refraction;                // смещение, px
+
+col.r = background(pos - s * (1.0 + disp)).r;
+col.g = background(pos - s              ).g;
+col.b = background(pos - s * (1.0 - disp)).b;</pre>
+  </section>
+
+  <p class="note">Потяни стеклянный шар: он преломляет и фон, и края панелей. Текст внутри панелей остаётся обычным HTML, поэтому сквозь шар он не искажается. Преломление живёт только в шейдере.</p>
+</main>
+
+<nav class="glass nav" data-bevel="26" aria-label="Демо-навигация">
+  <div class="glass indicator" data-bevel="22" data-rs="1.3"></div>
+  <button class="on">Главная</button>
+  <button>Поиск</button>
+  <button>Музыка</button>
+  <button>Профиль</button>
+</nav>
+
+<div class="glass lens" id="lens" data-bevel="62" data-rs="2.2" aria-label="Стеклянная линза"><span>тяни</span></div>
+
+<script>
+(() => {
+  const MAXP = 16;
+  const canvas = document.getElementById('gl');
+  const errBox = document.getElementById('err');
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
+
+  function fail(msg) {
+    document.documentElement.classList.add('nogl');
+    errBox.style.display = 'block';
+    errBox.textContent = msg;
+  }
+  if (!gl) { fail('WebGL2 недоступен в этом браузере — показан упрощённый вариант без преломления.'); }
+
+  // ---------- шейдеры ----------
+  const VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+  const FS = `#version 300 es
+precision highp float;
+out vec4 outColor;
+
+#define MAXP 16
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uDpr;
+uniform int   uCount;       // всего панелей (линза, если есть, — последняя)
+uniform int   uLens;        // 1, если последняя панель — линза
+uniform int   uMode;        // 0 итог, 1 нормали, 2 смещение, 3 блики, 4 фон, 5 расстояние
+uniform vec4  uRect[MAXP];  // x, y, w, h в пикселях канваса, начало слева сверху
+uniform float uRad[MAXP];
+uniform float uBevel[MAXP];
+uniform float uRS[MAXP];
+uniform float uRefraction;  // px
+uniform float uDispersion;
+uniform float uBlur;        // px
+
+// ---- фон как функция координат ----
+vec3 background(vec2 fc) {
+  vec2 uv = fc / uRes;
+  float aspect = uRes.x / uRes.y;
+  vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
+  vec3 col = mix(vec3(0.04, 0.06, 0.20), vec3(0.16, 0.04, 0.24), uv.y);
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    vec2 c = vec2(sin(uTime * 0.23 + fi * 1.9) * 0.42 * aspect,
+                  cos(uTime * 0.19 + fi * 2.7) * 0.42);
+    float d = length(p - c);
+    vec3 hue = 0.55 + 0.45 * cos(6.28318 * (fi * 0.21 + vec3(0.0, 0.33, 0.67)) + uTime * 0.05);
+    col += hue * 0.55 * exp(-d * d * 10.0);
+  }
+  vec2 gp = abs(fract(p * 9.0) - 0.5);
+  col += vec3(0.06) * smoothstep(0.46, 0.5, max(gp.x, gp.y));
+  return vec3(1.0) - exp(-col * 1.6);
+}
+
+// ---- форма ----
+float sdRoundBox(vec2 p, vec2 hs, float r) {
+  vec2 q = abs(p) - hs + vec2(r);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - r;
+}
+vec2 sdfNormal(vec2 p, vec2 hs, float r) {
+  vec2 e = vec2(1.0, 0.0);
+  vec2 g = vec2(sdRoundBox(p + e.xy, hs, r) - sdRoundBox(p - e.xy, hs, r),
+                sdRoundBox(p + e.yx, hs, r) - sdRoundBox(p - e.yx, hs, r));
+  return g / max(length(g), 0.0001);
+}
+
+// ---- свет ----
+vec3 shade(vec3 col, float d, vec2 n, float depth, vec2 local, vec2 size) {
+  col = mix(col, vec3(1.0), 0.09);                       // молочная тонировка
+  col += vec3(pow(1.0 - depth, 4.0) * 0.25);             // френель
+  vec2 L = normalize(vec2(-0.6, -0.8));
+  float facing = dot(n, L);
+  float rim = 1.0 - smoothstep(0.0, 0.55, depth);
+  float spec = pow(max(facing, 0.0), 5.0) + 0.5 * pow(max(-facing, 0.0), 5.0);
+  col += vec3(spec * rim * 0.55);                        // блики
+  float border = 1.0 - smoothstep(0.0, 1.5 * uDpr, abs(d + 0.75 * uDpr));
+  col += vec3(border * (0.25 + 0.55 * max(facing, 0.0))); // окантовка
+  col += vec3(0.06 * (1.0 - local.y / size.y));          // сияние сверху
+  return clamp(col, 0.0, 1.0);
+}
+
+vec4 finish(vec3 base, float cover, float d, vec2 n, float depth, float edge, vec2 local, vec2 size) {
+  if (uMode == 1) return vec4(vec3(n * 0.5 + 0.5, 0.5), cover);
+  if (uMode == 2) return vec4(vec3(1.0, 0.75, 0.3) * edge + vec3(0.04, 0.05, 0.12), cover);
+  if (uMode == 5) return vec4(mix(vec3(0.08, 0.16, 0.45), vec3(0.45, 0.95, 1.0), fract(-d / (14.0 * uDpr))), cover);
+  if (uMode == 3) base = vec3(0.0);
+  return vec4(shade(base, d, n, depth, local, size), cover);
+}
+
+// ---- обычная панель: за стеклом только фон ----
+vec4 glassPanel(vec2 fc, vec4 r, float rad, float bevel, float rs) {
+  vec2 hs = r.zw * 0.5;
+  vec2 p = fc - (r.xy + hs);
+  float d = sdRoundBox(p, hs, rad);
+  if (d > 1.0) return vec4(0.0);
+  float cover = clamp(0.5 - d, 0.0, 1.0);
+  vec2 n = sdfNormal(p, hs, rad);
+  float bv = max(min(bevel, min(hs.x, hs.y)), 1.0);
+  float depth = clamp(-d / bv, 0.0, 1.0);
+  float edge = pow(1.0 - depth, 2.5);
+  vec2 disp = n * edge * uRefraction * rs;
+  vec3 base = vec3(0.0);
+  if (uMode == 0) {
+    vec2 dR = disp * (1.0 + uDispersion);
+    vec2 dB = disp * (1.0 - uDispersion);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 5; i++) {
+      float a = float(i) * 2.39996;
+      float rr = uBlur * sqrt((float(i) + 0.5) / 5.0);
+      vec2 o = vec2(cos(a), sin(a)) * rr;
+      acc.r += background(fc - dR + o).r;
+      acc.g += background(fc - disp + o).g;
+      acc.b += background(fc - dB + o).b;
+    }
+    base = acc / 5.0;
+  }
+  return finish(base, cover, d, n, depth, edge, p + hs, r.zw);
+}
+
+// ---- фон + все обычные панели ----
+vec3 sceneBelow(vec2 fc, int upto) {
+  vec3 col = background(fc);
+  for (int k = 0; k < MAXP; k++) {
+    if (k >= upto) break;
+    vec4 g = glassPanel(fc, uRect[k], uRad[k], uBevel[k], uRS[k]);
+    col = mix(col, g.rgb, g.a);
+  }
+  return col;
+}
+
+// ---- линза: за ней видны и фон, и стеклянные панели ----
+vec4 glassLens(vec2 fc, vec4 r, float rad, float bevel, float rs, int nb) {
+  vec2 hs = r.zw * 0.5;
+  vec2 p = fc - (r.xy + hs);
+  float d = sdRoundBox(p, hs, rad);
+  if (d > 1.0) return vec4(0.0);
+  float cover = clamp(0.5 - d, 0.0, 1.0);
+  vec2 n = sdfNormal(p, hs, rad);
+  float bv = max(min(bevel, min(hs.x, hs.y)), 1.0);
+  float depth = clamp(-d / bv, 0.0, 1.0);
+  float edge = pow(1.0 - depth, 2.5);
+  vec2 disp = n * edge * uRefraction * rs;
+  vec3 base = vec3(0.0);
+  if (uMode == 0) {
+    base.r = sceneBelow(fc - disp * (1.0 + uDispersion), nb).r;
+    base.g = sceneBelow(fc - disp, nb).g;
+    base.b = sceneBelow(fc - disp * (1.0 - uDispersion), nb).b;
+  }
+  return finish(base, cover, d, n, depth, edge, p + hs, r.zw);
+}
+
+void main() {
+  vec2 fc = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  int nb = uCount - uLens;
+  vec3 col;
+  if (uMode == 4) {
+    col = background(fc);
+  } else {
+    col = sceneBelow(fc, nb);
+    if (uLens == 1) {
+      int k = uCount - 1;
+      vec4 g = glassLens(fc, uRect[k], uRad[k], uBevel[k], uRS[k], nb);
+      col = mix(col, g.rgb, g.a);
+    }
+  }
+  outColor = vec4(col, 1.0);
+}`;
+
+  // ---------- состояние UI ----------
+  const $ = (id) => document.getElementById(id);
+  const state = { refraction: 30, dispersion: 0.12, blur: 5, mode: 0 };
+
+  function bindSlider(id, outId, key, fmt) {
+    const el = $(id), out = $(outId);
+    const upd = () => { state[key] = parseFloat(el.value); out.textContent = fmt(state[key]); };
+    el.addEventListener('input', upd); upd();
+  }
+  bindSlider('s-ref', 'o-ref', 'refraction', v => v.toFixed(0) + ' px');
+  bindSlider('s-dis', 'o-dis', 'dispersion', v => v.toFixed(2));
+  bindSlider('s-blur', 'o-blur', 'blur', v => v.toFixed(1) + ' px');
+
+  const chips = [...document.querySelectorAll('.chip')];
+  const steps = [...document.querySelectorAll('.step')];
+  function setMode(m) {
+    state.mode = m;
+    chips.forEach(c => c.classList.toggle('on', +c.dataset.mode === m));
+    steps.forEach(s => s.classList.toggle('active', +s.dataset.mode === m));
+  }
+  chips.forEach(c => c.addEventListener('click', () => setMode(+c.dataset.mode)));
+  steps.forEach(s => {
+    s.addEventListener('click', () => setMode(+s.dataset.mode));
+    s.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMode(+s.dataset.mode); } });
+  });
+
+  // навигация со скользящим стеклянным индикатором
+  const nav = document.querySelector('.nav');
+  const indicator = nav.querySelector('.indicator');
+  const tabs = [...nav.querySelectorAll('button')];
+  function moveIndicator(btn) {
+    indicator.style.left = btn.offsetLeft + 'px';
+    indicator.style.width = btn.offsetWidth + 'px';
+  }
+  tabs.forEach(b => b.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.toggle('on', t === b));
+    moveIndicator(b);
+  }));
+  window.addEventListener('resize', () => moveIndicator(tabs.find(t => t.classList.contains('on'))));
+  moveIndicator(tabs[0]);
+
+  // перетаскиваемая линза
+  const lens = $('lens');
+  function placeLens(x, y) {
+    const w = lens.offsetWidth, h = lens.offsetHeight;
+    lens.style.left = Math.max(-w * 0.3, Math.min(innerWidth - w * 0.7, x)) + 'px';
+    lens.style.top = Math.max(-h * 0.3, Math.min(innerHeight - h * 0.7, y)) + 'px';
+  }
+  // стартовое место: справа над навигацией, чтобы не закрывать ползунки
+  placeLens(innerWidth - 150 - 16, innerHeight - 68 - 16 - 150 - 28);
+  window.addEventListener('resize', () => placeLens(lens.offsetLeft, lens.offsetTop));
+  let drag = null;
+  lens.addEventListener('pointerdown', e => {
+    lens.setPointerCapture(e.pointerId);
+    drag = { dx: e.clientX - lens.offsetLeft, dy: e.clientY - lens.offsetTop };
+  });
+  lens.addEventListener('pointermove', e => { if (drag) placeLens(e.clientX - drag.dx, e.clientY - drag.dy); });
+  const endDrag = () => { drag = null; };
+  lens.addEventListener('pointerup', endDrag);
+  lens.addEventListener('pointercancel', endDrag);
+
+  const qm = new URLSearchParams(location.search).get('mode');   // ?mode=0..5 — открыть сразу в нужном режиме
+  setMode(qm !== null && +qm >= 0 && +qm <= 5 ? +qm : 0);
+  if (!gl) return;
+
+  // ---------- WebGL ----------
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  }
+  let prog;
+  try {
+    prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  } catch (e) {
+    fail('Не удалось собрать шейдер:\n' + e.message);
+    return;
+  }
+  gl.useProgram(prog);
+
+  const U = {};
+  ['uRes','uTime','uDpr','uCount','uLens','uMode','uRect','uRad','uBevel','uRS','uRefraction','uDispersion','uBlur']
+    .forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+  const rects = new Float32Array(MAXP * 4);
+  const rads = new Float32Array(MAXP), bevels = new Float32Array(MAXP), rss = new Float32Array(MAXP);
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+    return canvas.width / Math.max(1, canvas.clientWidth);
+  }
+
+  // читаем положение каждой .glass-панели из DOM — шейдер рисует стекло ровно под ней
+  function collect(scale) {
+    const vw = innerWidth, vh = innerHeight;
+    const lensEl = $('lens');
+    const visible = [...document.querySelectorAll('.glass')]
+      .filter(el => el !== lensEl)
+      .map(el => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw)
+      .slice(0, MAXP - 1);
+    const lr = lensEl.getBoundingClientRect();
+    const items = visible.slice();
+    items.push({ el: lensEl, r: lr });
+
+    items.forEach(({ el, r }, i) => {
+      rects[i * 4] = r.left * scale; rects[i * 4 + 1] = r.top * scale;
+      rects[i * 4 + 2] = r.width * scale; rects[i * 4 + 3] = r.height * scale;
+      const radStr = getComputedStyle(el).borderTopLeftRadius || '0';
+      const minSide = Math.min(r.width, r.height);
+      // border-radius может быть в процентах (круглая линза: 50%)
+      const cssRad = radStr.endsWith('%') ? parseFloat(radStr) / 100 * minSide : (parseFloat(radStr) || 0);
+      rads[i] = Math.min(cssRad, minSide / 2) * scale;
+      bevels[i] = (parseFloat(el.dataset.bevel) || 26) * scale;
+      rss[i] = parseFloat(el.dataset.rs) || 1;
+    });
+    return items.length;
+  }
+
+  const t0 = performance.now();
+  function frame(now) {
+    const scale = resize();
+    const count = collect(scale);
+    gl.uniform2f(U.uRes, canvas.width, canvas.height);
+    gl.uniform1f(U.uTime, (now - t0) / 1000);
+    gl.uniform1f(U.uDpr, scale);
+    gl.uniform1i(U.uCount, count);
+    gl.uniform1i(U.uLens, 1);
+    gl.uniform1i(U.uMode, state.mode);
+    gl.uniform4fv(U.uRect, rects);
+    gl.uniform1fv(U.uRad, rads);
+    gl.uniform1fv(U.uBevel, bevels);
+    gl.uniform1fv(U.uRS, rss);
+    gl.uniform1f(U.uRefraction, state.refraction * scale);
+    gl.uniform1f(U.uDispersion, state.dispersion);
+    gl.uniform1f(U.uBlur, state.blur * scale);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

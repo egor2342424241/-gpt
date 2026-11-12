@@ -1,0 +1,459 @@
+# Расширенный промпт: стеклянный интерфейс («жидкое стекло»)
+
+## Как пользоваться
+
+1. Скопируй всё между строками `ПРОМПТ НАЧАЛО` и `ПРОМПТ КОНЕЦ` в любой ИИ.
+2. Замени значения в квадратных скобках в разделе 1: платформа, версия, что нужно получить.
+3. Ненужные разделы удали: например, раздел 7 (WebGL), если делаешь только Android. Чем меньше лишнего, тем точнее ответ.
+4. Если результат выглядит не так, как ждёшь, включи режимы отладки из раздела 12 и сравни по ним.
+
+Фрагменты шейдера на GLSL проверены в браузере (WebGL2, headless Chrome). Код для Compose и AGSL написан по тем же формулам, но на устройстве я его не запускал: ИИ или ты можешь поправить мелочи при первой сборке.
+
+---
+
+ПРОМПТ НАЧАЛО
+
+````
+# Задача
+
+Ты опытный графический программист. Сделай стеклянный интерфейс в стиле
+«жидкое стекло» (Liquid Glass): панели, которые честно преломляют фон за
+собой, с хроматической дисперсией, матовостью, бликами и тонкой кромкой.
+
+## 1. Контекст (заполни)
+
+- Платформа: [Jetpack Compose + AGSL / WebGL2 / Unity URP / Blender / ...]
+- Минимальная версия: [Android 8, шейдер с API 33 / WebGL2 / ...]
+- Что нужно получить: [демо-экран / библиотеку компонентов / один шейдер]
+- Фон: [анимированная функция / фото / HDRI / видео]
+- Язык ответа и комментариев: русский
+
+## 2. Главная идея (обязательно соблюдай)
+
+Не делай «размытие того, что под панелью» (backdrop blur). Стекло должно
+не копировать пиксели под собой, а ПЕРЕСЧИТЫВАТЬ фон в смещённых координатах:
+
+    цвет стекла в точке P = background(P - смещение(P))
+
+Для этого фон задаётся функцией background(координата, время) (или текстурой,
+которую можно читать в любой точке). Тогда:
+- преломление честное, с любым смещением и отдельно по каналам RGB;
+- не нужен захват экрана, всё считается в одном проходе шейдера;
+- панель может стоять над анимацией, и искажение меняется вместе с ней.
+
+Ограничение, о котором надо сказать честно: стекло преломляет только
+функцию фона, а не произвольные виджеты под ним. Преломление живого
+контента требует захвата слоя (раздел 13).
+
+## 3. Математика по шагам
+
+### 3.1 Форма: расстояние до скруглённого прямоугольника (SDF)
+
+p — координата относительно центра панели, hs — половина размера,
+r — радиус скругления. d < 0 внутри, d = 0 на краю, d > 0 снаружи.
+
+```glsl
+float sdRoundBox(vec2 p, vec2 hs, float r) {
+  vec2 q = abs(p) - hs + vec2(r);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - r;
+}
+```
+
+Для круга радиус = min(w, h) / 2. Для «капсулы» (навигация) так же.
+
+### 3.2 Нормаль кромки
+
+Нормаль — нормированный градиент d. Считай конечными разностями по 1 px.
+В центре симметричной панели градиент равен нулю: защищайся от деления на 0.
+
+```glsl
+vec2 sdfNormal(vec2 p, vec2 hs, float r) {
+  vec2 e = vec2(1.0, 0.0);
+  vec2 g = vec2(sdRoundBox(p + e.xy, hs, r) - sdRoundBox(p - e.xy, hs, r),
+                sdRoundBox(p + e.yx, hs, r) - sdRoundBox(p - e.yx, hs, r));
+  return g / max(length(g), 0.0001);
+}
+```
+
+### 3.3 Профиль преломления
+
+Линза гнёт свет сильно у кромки и почти не трогает центр. Иначе текст
+на панели «поплывёт».
+
+```glsl
+float bv    = max(min(bevel, min(hs.x, hs.y)), 1.0);  // ширина кромки, px
+float depth = clamp(-d / bv, 0.0, 1.0);               // 0 у кромки, 1 в глубине
+float edge  = pow(1.0 - depth, 2.5);                  // профиль 1 -> 0
+vec2  disp  = n * edge * refraction;                  // смещение, px
+```
+
+Что крутить:
+- bevel: шире кромка, больше «толщина» стекла (обычно 22–32 dp);
+- показатель степени 2.5: больше (3–4) делает зону узкой и резкой,
+  меньше (1.5–2) размазывает искажение вглубь;
+- мягкая альтернатива: edge = pow(1.0 - smoothstep(0.0, 1.0, depth), 2.0);
+- refraction: сила сдвига в пикселях (обычно 20–45 dp, умножай на плотность).
+
+Направление: сэмплируй фон в точке (P - disp). Нормаль смотрит наружу,
+значит у края берётся цвет изнутри, и содержимое кажется увеличенным, как
+в выпуклой линзе. Поменяешь знак получишь «вогнутую» линзу.
+
+### 3.4 Хроматическая дисперсия
+
+Три канала читаются с чуть разным смещением. Там, где смещение ноль
+(центр), цвета не расходятся, радужная кайма появляется только у кромки.
+
+```glsl
+vec2 dR = disp * (1.0 + dispersion);   // красный смещается сильнее
+vec2 dG = disp;
+vec2 dB = disp * (1.0 - dispersion);   // синий слабее
+// dispersion: 0.05 едва заметно, 0.10 хорошо, 0.2+ вызывающе
+```
+
+### 3.5 Матовость (размытие)
+
+Несколько отсчётов по спирали Фибоначчи с усреднением. Угол 2.39996 это
+«золотой угол» (радианы), он равномерно распределяет точки по диску.
+
+```glsl
+for (int i = 0; i < 5; i++) {
+  float a  = float(i) * 2.39996;
+  float rr = blur * sqrt((float(i) + 0.5) / 5.0);
+  vec2  o  = vec2(cos(a), sin(a)) * rr;
+  acc.r += background(fc - dR + o).r;
+  acc.g += background(fc - dG + o).g;
+  acc.b += background(fc - dB + o).b;
+}
+vec3 base = acc / 5.0;
+```
+
+Стоимость: отсчётов × 3 канала вызовов background на пиксель панели.
+При 5 отсчётах это 15 вызовов. См. раздел 10.
+
+### 3.6 Свет и стеклянные детали
+
+```glsl
+vec3 shade(vec3 col, float d, vec2 n, float depth, vec2 local, vec2 size) {
+  col = mix(col, vec3(1.0), 0.09);                         // молочная тонировка
+  col += vec3(pow(1.0 - depth, 4.0) * 0.25);               // френель по кромке
+  vec2  L      = normalize(vec2(-0.6, -0.8));              // свет сверху-слева
+  float facing = dot(n, L);
+  float rim    = 1.0 - smoothstep(0.0, 0.55, depth);       // блик только у кромки
+  float spec   = pow(max(facing, 0.0), 5.0)                // основной блик
+               + 0.5 * pow(max(-facing, 0.0), 5.0);        // слабый отражённый
+  col += vec3(spec * rim * 0.55);
+  float border = 1.0 - smoothstep(0.0, 1.5 * dpr, abs(d + 0.75 * dpr));
+  col += vec3(border * (0.25 + 0.55 * max(facing, 0.0)));  // тонкая окантовка
+  col += vec3(0.06 * (1.0 - local.y / size.y));            // сияние сверху
+  return clamp(col, 0.0, 1.0);
+}
+```
+
+Источник света не обязан быть фиксированным: его направление можно брать
+из гироскопа, чтобы блик «скользил» при наклоне телефона.
+
+### 3.7 Сглаживание края
+
+Шейдер возвращает цвет и покрытие cover = clamp(0.5 - d, 0.0, 1.0),
+а панели накладываются по порядку z: col = mix(col, glass.rgb, glass.a).
+
+## 4. Эталонный фон (для демо)
+
+Фон — аналитическая функция: градиент, пять плавающих цветных пятен и тонкая
+сетка (по ней отлично видно искажение). В конце тон-маппинг, чтобы пятна
+не пересвечивались.
+
+```glsl
+vec3 background(vec2 fc) {
+  vec2 uv = fc / uRes;
+  float aspect = uRes.x / uRes.y;
+  vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
+  vec3 col = mix(vec3(0.04, 0.06, 0.20), vec3(0.16, 0.04, 0.24), uv.y);
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    vec2 c = vec2(sin(uTime * 0.23 + fi * 1.9) * 0.42 * aspect,
+                  cos(uTime * 0.19 + fi * 2.7) * 0.42);
+    float d = length(p - c);
+    vec3 hue = 0.55 + 0.45 * cos(6.28318 * (fi * 0.21 + vec3(0.0, 0.33, 0.67)) + uTime * 0.05);
+    col += hue * 0.55 * exp(-d * d * 10.0);
+  }
+  vec2 gp = abs(fract(p * 9.0) - 0.5);
+  col += vec3(0.06) * smoothstep(0.46, 0.5, max(gp.x, gp.y));
+  return vec3(1.0) - exp(-col * 1.6);
+}
+```
+
+Если фон — фото или HDRI, замени тело функции на выборку из текстуры:
+`return texture(uBg, fc / uRes).rgb;`. Всё остальное не меняется.
+
+## 5. Панель целиком (эталон)
+
+```glsl
+vec4 glassPanel(vec2 fc, vec4 rect, float radius, float bevel) {
+  vec2 hs = rect.zw * 0.5;
+  vec2 p  = fc - (rect.xy + hs);
+  float d = sdRoundBox(p, hs, radius);
+  if (d > 1.0) return vec4(0.0);                 // вне панели: ничего не считаем
+  float cover = clamp(0.5 - d, 0.0, 1.0);
+  vec2  n     = sdfNormal(p, hs, radius);
+  float bv    = max(min(bevel, min(hs.x, hs.y)), 1.0);
+  float depth = clamp(-d / bv, 0.0, 1.0);
+  float edge  = pow(1.0 - depth, 2.5);
+  vec2  disp  = n * edge * uRefraction;
+  vec2  dR = disp * (1.0 + uDispersion);
+  vec2  dB = disp * (1.0 - uDispersion);
+  vec3  acc = vec3(0.0);
+  for (int i = 0; i < 5; i++) {
+    float a  = float(i) * 2.39996;
+    float rr = uBlur * sqrt((float(i) + 0.5) / 5.0);
+    vec2  o  = vec2(cos(a), sin(a)) * rr;
+    acc.r += background(fc - dR   + o).r;
+    acc.g += background(fc - disp + o).g;
+    acc.b += background(fc - dB   + o).b;
+  }
+  vec3 col = shade(acc / 5.0, d, n, depth, p + hs, rect.zw);
+  return vec4(col, cover);
+}
+```
+
+Координаты: fc — глобальная координата пикселя в тех же единицах, что и
+фон (экранные пиксели, начало слева сверху). rect = (x, y, ширина, высота).
+
+## 6. Android: Jetpack Compose + AGSL (API 33+)
+
+Правила:
+- RuntimeShader создаётся один раз на панель (remember), не в каждом кадре.
+- Uniform-ы обновляются внутри draw-блока (drawBehind), чтобы анимация не
+  вызывала рекомпозицию. Время хранится в mutableFloatStateOf и читается
+  только там.
+- Координаты в шейдере локальные для рисуемого прямоугольника. Позицию
+  панели в корне передавай через onGloballyPositioned { positionInRoot() },
+  фон рисуй на весь экран с началом в (0, 0).
+- Для API < 33 не трогай класс RuntimeShader: прячь его за интерфейсом и
+  проверкой Build.VERSION.SDK_INT. Фолбэк: полупрозрачная заливка +
+  градиентная обводка.
+
+Отличия AGSL от GLSL:
+- типы float2/float3/half4 вместо vec2/vec3/vec4;
+- точка входа: half4 main(float2 fragCoord), а не out-переменная;
+- возвращай half4(half3(color), 1.0) явно;
+- все циклы с константными границами, без рекурсии;
+- для clamp и mix используй векторные формы: clamp(c, float3(0.0), float3(1.0));
+- uniform-ы: uniform float2 origin; setFloatUniform("origin", x, y).
+
+Каркас:
+
+```kotlin
+@Composable
+fun GlassSurface(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 28.dp,
+    bevel: Dp = 26.dp,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val scene = LocalGlassScene.current
+    val drawer: GlassDrawer? = remember {
+        if (Build.VERSION.SDK_INT >= 33) AgslGlass() else null
+    }
+    var origin by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .drawBehind {
+                if (drawer != null) {
+                    drawer.draw(
+                        scope = this,
+                        time = scene.time.floatValue,
+                        screen = scene.screenSize,
+                        origin = origin,
+                        cornerRadius = cornerRadius.toPx(),
+                        refraction = scene.refraction.floatValue.dp.toPx(),
+                        dispersion = scene.dispersion.floatValue,
+                        blur = scene.blur.floatValue.dp.toPx(),
+                        bevel = bevel.toPx(),
+                    )
+                } else drawFallbackGlass(cornerRadius.toPx())
+            },
+        content = content,
+    )
+}
+
+@RequiresApi(33)
+internal class AgslGlass : GlassDrawer {
+    private val shader = RuntimeShader(GlassShaders.GLASS)
+    private val brush = ShaderBrush(shader)
+    override fun draw(scope: DrawScope, time: Float, screen: Size, origin: Offset,
+                      cornerRadius: Float, refraction: Float, dispersion: Float,
+                      blur: Float, bevel: Float) {
+        shader.setFloatUniform("resolution", screen.width, screen.height)
+        shader.setFloatUniform("time", time)
+        shader.setFloatUniform("origin", origin.x, origin.y)
+        shader.setFloatUniform("size", scope.size.width, scope.size.height)
+        shader.setFloatUniform("radius", cornerRadius)
+        shader.setFloatUniform("refraction", refraction)
+        shader.setFloatUniform("dispersion", dispersion)
+        shader.setFloatUniform("blur", blur)
+        shader.setFloatUniform("bevel", bevel)
+        scope.drawRoundRect(brush = brush, cornerRadius = CornerRadius(cornerRadius))
+    }
+}
+```
+
+Таймер на всё приложение:
+
+```kotlin
+LaunchedEffect(Unit) {
+    val start = withFrameNanos { it }
+    while (true) {
+        withFrameNanos { scene.time.floatValue = (it - start) / 1_000_000_000f }
+    }
+}
+```
+
+Живые детали интерфейса:
+- кнопка: пружинное нажатие scale 0.94 (spring dampingRatio 0.55, stiffness 500);
+- нижняя навигация: скользящий индикатор тоже стеклянный, анимация
+  animateDpAsState со spring(dampingRatio 0.7, stiffness 300);
+- перетаскиваемая линза: отдельная панель с большим bevel (55–65 dp) и
+  усиленным преломлением (x2).
+
+## 7. Веб: WebGL2
+
+Схема: канвас на весь экран позади страницы (position: fixed), панели это
+обычные прозрачные DOM-элементы с классом .glass. Каждый кадр читаем их
+getBoundingClientRect() и передаём в шейдер массивом uniform-ов. Шейдер
+рисует стекло ровно под ними, а текст остаётся обычным HTML.
+
+```js
+function collect(scale) {
+  const items = [...document.querySelectorAll('.glass')]
+    .map(el => ({ el, r: el.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 2 && r.height > 2 &&
+                       r.bottom > 0 && r.top < innerHeight)
+    .slice(0, MAXP);
+  items.forEach(({ el, r }, i) => {
+    rects[i*4] = r.left*scale;  rects[i*4+1] = r.top*scale;
+    rects[i*4+2] = r.width*scale; rects[i*4+3] = r.height*scale;
+    const s = getComputedStyle(el).borderTopLeftRadius || '0';
+    const minSide = Math.min(r.width, r.height);
+    // border-radius может быть в процентах (круг: 50%)
+    const rad = s.endsWith('%') ? parseFloat(s) / 100 * minSide : parseFloat(s) || 0;
+    rads[i] = Math.min(rad, minSide / 2) * scale;
+    bevels[i] = (parseFloat(el.dataset.bevel) || 26) * scale;
+  });
+  return items.length;
+}
+// в кадре:
+gl.uniform4fv(U.uRect, rects);
+gl.uniform1fv(U.uRad, rads);
+gl.uniform1fv(U.uBevel, bevels);
+```
+
+Нюансы WebGL:
+- gl_FragCoord начинается снизу: переверни y:
+  vec2 fc = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+- используй WebGL2 (#version 300 es): в WebGL1 динамическая индексация
+  uniform-массивов в цикле ограничена;
+- размер канваса = CSS-размер × min(devicePixelRatio, 2);
+- полноэкранный треугольник без буферов: gl_VertexID в вершинном шейдере;
+- без WebGL2 покажи фолбэк на backdrop-filter: blur() и сообщи об этом.
+
+## 8. Пресеты параметров
+
+| Пресет | refraction, dp | bevel, dp | dispersion | blur, dp |
+|---|---|---|---|---|
+| Матовое (frosted) | 18 | 22 | 0.06 | 10 |
+| Прозрачное (clear) | 30 | 28 | 0.10 | 2 |
+| Кристалл | 44 | 32 | 0.20 | 0 |
+| Мягкое | 12 | 20 | 0.03 | 8 |
+
+Тонировку (0.09 белого в shade) вынеси в uniform: матовому стеклу нужно
+0.12–0.16, кристаллу 0.03–0.05.
+
+## 9. Дизайн-правила
+
+- Эффект виден только на фоне с деталями: цветные пятна, градиенты,
+  сетка, фото. На однотонном фоне стекла не видно.
+- Стекло для навигации, карточек, модальных окон и кнопок. Не делай
+  стеклянным всё: нужна иерархия, иначе интерфейс превращается в кашу.
+- Контраст текста не ниже WCAG AA. Если фон под стеклом яркий, добавь
+  затемнение 10–20 % или мягкую тень текста (text-shadow / shadow).
+- Радиус скругления связан с размером: кнопки и навигация почти капсулы
+  (радиус ≥ высота / 2), карточки 24–32 dp.
+- Преломление искажает только кромку: центр плоский, текст читаем.
+- Анимация: пружины с небольшим перерегулированием, без линейных
+  переходов.
+- Уважай настройку «уменьшить движение»: замедли или останови фон.
+
+## 10. Производительность
+
+Стоимость на пиксель панели ≈ число_отсчётов × 3 вызова background.
+Фон с экспонентами в цикле дорогой, поэтому:
+- 5 отсчётов достаточно (6 лучше, 3 допустимо на слабых телефонах);
+- пиксели вне панели выходят из шейдера сразу (d > 1.0, return);
+- на экране не больше ~10 панелей, невидимые не отправляй в шейдер;
+- ограничь плотность канваса: min(devicePixelRatio, 2);
+- главный приём: запеки фон в текстуру в четверть разрешения и читай её
+  билинейно: вместо тяжёлой функции получаешь 15 быстрых выборок;
+- линзу, которая преломляет и панели, считай без размытия (3 отсчёта по
+  каналам): иначе стоимость растёт кратно;
+- профилируй: 60 fps на среднем телефоне это цель.
+
+## 11. Типичные ошибки
+
+- Стекло «не стыкуется» с фоном: координаты фона и панели в разных
+  системах (учти начало координат, плотность экрана, инверсию y).
+- Радиус из CSS в процентах читается как пиксели (50% превращается в 50 px).
+- RuntimeShader создаётся в каждом кадре или в теле composable без remember.
+- Время читается в теле composable: перерисовка всего экрана каждый кадр.
+- В AGSL смешаны float и half без явных конструкторов, clamp(vec, float, float).
+- Динамическая индексация uniform-массива в GLSL ES 1.00.
+- NaN в центре панели: нормализация нулевого градиента без max(length, eps).
+- Слишком сильное преломление в центре: текст плывёт.
+- Нет фолбэка на старых устройствах.
+
+## 12. Режимы отладки (обязательно добавь)
+
+Переключатель режима вывода помогает понять, что именно ломается:
+- 0 итог;
+- 1 нормали: vec3(n * 0.5 + 0.5, 0.5), красный вправо, зелёный вниз;
+- 2 смещение: яркость = edge, видно ширину кромки;
+- 3 только свет: блики и окантовка на чёрном;
+- 4 фон без стекла;
+- 5 расстояние: полосы fract(-d / 14.0), видно форму SDF.
+
+## 13. Расширения (по желанию)
+
+- Реальный захват фона: на Android RenderEffect.createRuntimeShaderEffect
+  с дочерним шейдером «content» (API 33) даёт преломление живого
+  контента, а не только функции фона. Дороже и сложнее.
+- В вебе: рендер сцены в текстуру и чтение её вместо background().
+- Блик от гироскопа: направление света из датчика ускорения.
+- Эффект касания: волна от точки нажатия, смещающая нормаль.
+- 3D: фон из HDRI, нормаль берётся из normal map меша вместо SDF.
+- Тёмная и светлая тема: тонировка и сила блика зависят от темы.
+
+## 14. Что должно быть в ответе
+
+1. Дерево файлов проекта.
+2. Полный код: шейдер, обёртки, компоненты, демо-экран.
+3. Инструкция по сборке и запуску в 3–5 шагов.
+4. Таблица параметров и что каждый делает.
+5. Список допущений и того, что не удалось проверить.
+6. Короткий раздел «как настроить под свой фон».
+
+## 15. Критерии приёмки
+
+- у кромки видно искажение фона, в центре панели плоско;
+- по краю заметна лёгкая радужная кайма;
+- есть тонкая светлая окантовка и блик сверху-слева;
+- анимация фона заметно влияет на то, что видно сквозь стекло;
+- 60 fps на средней модели;
+- работает фолбэк на старых устройствах;
+- код компилируется без правок, в консоли и логах нет ошибок;
+- есть режимы отладки из раздела 12.
+````
+
+ПРОМПТ КОНЕЦ
+
