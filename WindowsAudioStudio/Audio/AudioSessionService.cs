@@ -46,7 +46,7 @@ public sealed class AudioSessionService : IDisposable
                 {
                     AudioSessionControl control = current[i];
                     int processId = checked((int)control.GetProcessID);
-                    if (processId <= 0) continue;
+                    if (processId <= 0 || processId == Environment.ProcessId) continue;
 
                     if (!groups.TryGetValue(processId, out var controls))
                         groups[processId] = controls = new List<AudioSessionControl>();
