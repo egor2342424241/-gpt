@@ -1,0 +1,30 @@
+name: Build Windows Audio Studio
+on:
+  push:
+    branches:
+      - audio-studio/**
+    paths:
+      - "WindowsAudioStudio/**"
+      - ".github/workflows/build-audio-studio.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore WindowsAudioStudio/WindowsAudioStudio.csproj
+      - name: Build
+        run: dotnet build WindowsAudioStudio/WindowsAudioStudio.csproj --configuration Release --no-restore
+      - name: Publish
+        run: dotnet publish WindowsAudioStudio/WindowsAudioStudio.csproj --configuration Release --no-build --output artifacts/WindowsAudioStudio
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowsAudioStudio-win-x64
+          path: artifacts/WindowsAudioStudio/
+          if-no-files-found: error
