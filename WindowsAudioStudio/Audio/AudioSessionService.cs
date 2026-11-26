@@ -39,7 +39,7 @@ public sealed class AudioSessionService : IDisposable
                 try
                 {
                     var control = current[i];
-                    if (control.State == AudioSessionState.Expired) continue;
+                    if (control.State == AudioSessionState.AudioSessionStateExpired) continue;
                     found.Add(new AudioSessionItem(control));
                 }
                 catch { }
