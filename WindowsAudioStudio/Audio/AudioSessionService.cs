@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using WindowsAudioStudio.Models;
 
 namespace WindowsAudioStudio.Audio;
