@@ -12,6 +12,7 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
     private bool _isMuted;
     private float _peak;
     private bool _isProcessing;
+    private bool _sourceMutedForProcessing;
 
     public AudioSessionItem(int processId, IEnumerable<AudioSessionControl> controls)
     {
@@ -93,25 +94,31 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
 
     public void SetProcessing(bool enabled)
     {
-        if (_isProcessing == enabled) return;
-        _isProcessing = enabled;
-
-        foreach (var control in _controls)
+        if (enabled && !_sourceMutedForProcessing)
         {
-            try
+            foreach (var control in _controls)
+                try { control.SimpleAudioVolume.Mute = true; } catch { }
+            _sourceMutedForProcessing = true;
+        }
+        else if (!enabled && _sourceMutedForProcessing)
+        {
+            foreach (var control in _controls)
             {
-                if (enabled)
-                    control.SimpleAudioVolume.Mute = true;
-                else
+                try
                 {
                     control.SimpleAudioVolume.Volume = _volume;
                     control.SimpleAudioVolume.Mute = _isMuted;
                 }
+                catch { }
             }
-            catch { }
+            _sourceMutedForProcessing = false;
         }
 
-        OnPropertyChanged(nameof(IsProcessing));
+        if (_isProcessing != enabled)
+        {
+            _isProcessing = enabled;
+            OnPropertyChanged(nameof(IsProcessing));
+        }
     }
 
     public void RefreshMeter()
