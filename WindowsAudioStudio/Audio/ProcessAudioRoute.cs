@@ -24,9 +24,8 @@ internal sealed class ProcessAudioRoute : IAsyncDisposable
     public ProcessAudioRoute(AudioSessionItem session)
     {
         _session = session;
-        _buffer = new BufferedWaveProvider(_format)
+        _buffer = new BufferedWaveProvider(_format, TimeSpan.FromMilliseconds(500))
         {
-            BufferDuration = TimeSpan.FromMilliseconds(500),
             DiscardOnBufferOverflow = true,
             ReadFully = true
         };
