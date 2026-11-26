@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using NAudio.CoreAudioApi;
-using NAudio.CoreAudioApi.Interfaces;
 using WindowsAudioStudio.Models;
 
 namespace WindowsAudioStudio.Audio;
@@ -10,6 +9,7 @@ public sealed class AudioSessionService : IDisposable
     private readonly MMDeviceEnumerator _enumerator = new();
     private MMDevice? _device;
     private AudioSessionManager? _manager;
+
     public ObservableCollection<AudioSessionItem> Sessions { get; } = new();
     public string OutputDeviceName => _device?.FriendlyName ?? "Устройство вывода не найдено";
 
@@ -23,38 +23,59 @@ public sealed class AudioSessionService : IDisposable
             _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             _manager = _device.AudioSessionManager;
         }
-        catch { _device = null; _manager = null; }
+        catch
+        {
+            _device = null;
+            _manager = null;
+        }
     }
 
     public void Refresh()
     {
         if (_manager is null) ConnectDefaultDevice();
         if (_manager is null) return;
+
         try
         {
+            var groups = new Dictionary<int, List<AudioSessionControl>>();
             var current = _manager.Sessions;
-            var found = new List<AudioSessionItem>();
+
             for (int i = 0; i < current.Count; i++)
             {
                 try
                 {
-                    var control = current[i];
-                    if (control.State == AudioSessionState.AudioSessionStateExpired) continue;
-                    found.Add(new AudioSessionItem(control));
+                    AudioSessionControl control = current[i];
+                    int processId = checked((int)control.GetProcessID);
+                    if (processId <= 0) continue;
+
+                    if (!groups.TryGetValue(processId, out var controls))
+                        groups[processId] = controls = new List<AudioSessionControl>();
+
+                    controls.Add(control);
                 }
                 catch { }
             }
-            var existing = Sessions.ToDictionary(s => s.Key, s => s);
-            var refreshed = new List<AudioSessionItem>();
-            foreach (var item in found)
+
+            var existing = Sessions.ToDictionary(item => item.ProcessId);
+            var seen = new HashSet<int>();
+
+            foreach (var pair in groups)
             {
-                if (existing.TryGetValue(item.Key, out var old)) { old.RefreshMeter(); refreshed.Add(old); }
-                else refreshed.Add(item);
+                seen.Add(pair.Key);
+                if (existing.TryGetValue(pair.Key, out var item))
+                {
+                    item.UpdateControls(pair.Value);
+                    item.RefreshMeter();
+                }
+                else
+                {
+                    Sessions.Add(new AudioSessionItem(pair.Key, pair.Value));
+                }
             }
+
             for (int i = Sessions.Count - 1; i >= 0; i--)
-                if (!refreshed.Any(x => x.Key == Sessions[i].Key)) Sessions.RemoveAt(i);
-            foreach (var item in refreshed)
-                if (!Sessions.Any(x => x.Key == item.Key)) Sessions.Add(item);
+                if (!seen.Contains(Sessions[i].ProcessId))
+                    Sessions.RemoveAt(i);
         }
         catch { }
     }
