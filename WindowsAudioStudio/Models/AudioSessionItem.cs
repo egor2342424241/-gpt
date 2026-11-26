@@ -17,7 +17,7 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
         _session = session;
         try
         {
-            ProcessId = session.GetProcessID;
+            ProcessId = checked((int)session.GetProcessID);
             try { ProcessName = Process.GetProcessById(ProcessId).ProcessName; }
             catch { ProcessName = ProcessId == 0 ? "Системный звук" : "Неизвестный процесс"; }
             DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? ProcessName : session.DisplayName;
