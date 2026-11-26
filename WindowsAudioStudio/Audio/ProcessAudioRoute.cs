@@ -1,3 +1,4 @@
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using WindowsAudioStudio.Models;
 
@@ -18,6 +19,7 @@ internal sealed class ProcessAudioRoute : IAsyncDisposable
     private WasapiPlayer? _player;
     private Task? _captureTask;
     private bool _started;
+    private int _disposed;
 
     public ProcessAudioRoute(AudioSessionItem session)
     {
@@ -83,6 +85,7 @@ internal sealed class ProcessAudioRoute : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _stop.Cancel();
 
         try
