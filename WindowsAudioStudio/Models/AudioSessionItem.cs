@@ -7,36 +7,33 @@ namespace WindowsAudioStudio.Models;
 
 public sealed class AudioSessionItem : INotifyPropertyChanged
 {
-    private readonly AudioSessionControl _session;
+    private List<AudioSessionControl> _controls;
     private float _volume;
     private bool _isMuted;
     private float _peak;
+    private bool _isProcessing;
 
-    public AudioSessionItem(AudioSessionControl session)
+    public AudioSessionItem(int processId, IEnumerable<AudioSessionControl> controls)
     {
-        _session = session;
-        try
-        {
-            ProcessId = checked((int)session.GetProcessID);
-            try { ProcessName = Process.GetProcessById(ProcessId).ProcessName; }
-            catch { ProcessName = ProcessId == 0 ? "Системный звук" : "Неизвестный процесс"; }
-            DisplayName = string.IsNullOrWhiteSpace(session.DisplayName) ? ProcessName : session.DisplayName;
-            _volume = session.SimpleAudioVolume.Volume;
-            _isMuted = session.SimpleAudioVolume.Mute;
-            _peak = session.AudioMeterInformation.MasterPeakValue;
-        }
-        catch
-        {
-            ProcessId = 0;
-            ProcessName = "Неизвестный процесс";
-            DisplayName = "Аудиосессия";
-        }
+        ProcessId = processId;
+        _controls = controls.ToList();
+
+        try { ProcessName = Process.GetProcessById(processId).ProcessName; }
+        catch { ProcessName = "Завершившийся процесс"; }
+
+        DisplayName = _controls.Select(c => c.DisplayName)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? ProcessName;
+
+        _volume = ReadVolume();
+        _isMuted = _controls.Count > 0 && _controls.All(c => SafeReadMute(c));
+        Dsp = new DspSettings();
     }
 
     public int ProcessId { get; }
     public string ProcessName { get; }
     public string DisplayName { get; }
-    public string Key => $"{ProcessId}:{DisplayName}";
+    public string Key => ProcessId.ToString();
+    public DspSettings Dsp { get; }
 
     public float Volume
     {
@@ -44,7 +41,8 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
         set
         {
             _volume = Math.Clamp(value, 0f, 1f);
-            try { _session.SimpleAudioVolume.Volume = _volume; } catch { }
+            if (!_isProcessing)
+                foreach (var control in _controls) try { control.SimpleAudioVolume.Volume = _volume; } catch { }
             OnPropertyChanged();
             OnPropertyChanged(nameof(VolumePercent));
         }
@@ -58,9 +56,16 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
         set
         {
             _isMuted = value;
-            try { _session.SimpleAudioVolume.Mute = value; } catch { }
+            if (!_isProcessing)
+                foreach (var control in _controls) try { control.SimpleAudioVolume.Mute = value; } catch { }
             OnPropertyChanged();
         }
+    }
+
+    public bool IsProcessing
+    {
+        get => _isProcessing;
+        set { if (_isProcessing == value) return; _isProcessing = value; OnPropertyChanged(); }
     }
 
     public float Peak
@@ -69,22 +74,82 @@ public sealed class AudioSessionItem : INotifyPropertyChanged
         private set { _peak = value; OnPropertyChanged(); }
     }
 
+    public void UpdateControls(IEnumerable<AudioSessionControl> controls)
+    {
+        _controls = controls.ToList();
+        if (_isProcessing)
+        {
+            foreach (var control in _controls) try { control.SimpleAudioVolume.Mute = true; } catch { }
+        }
+        else
+        {
+            _volume = ReadVolume();
+            _isMuted = _controls.Count > 0 && _controls.All(SafeReadMute);
+            OnPropertyChanged(nameof(Volume));
+            OnPropertyChanged(nameof(VolumePercent));
+            OnPropertyChanged(nameof(IsMuted));
+        }
+    }
+
+    public void SetProcessing(bool enabled)
+    {
+        if (_isProcessing == enabled) return;
+        _isProcessing = enabled;
+
+        foreach (var control in _controls)
+        {
+            try
+            {
+                if (enabled)
+                    control.SimpleAudioVolume.Mute = true;
+                else
+                {
+                    control.SimpleAudioVolume.Volume = _volume;
+                    control.SimpleAudioVolume.Mute = _isMuted;
+                }
+            }
+            catch { }
+        }
+
+        OnPropertyChanged(nameof(IsProcessing));
+    }
+
     public void RefreshMeter()
     {
-        try { Peak = _session.AudioMeterInformation.MasterPeakValue; } catch { Peak = 0; }
-        try
+        float peak = 0f;
+        foreach (var control in _controls)
         {
-            var current = _session.SimpleAudioVolume.Volume;
+            try { peak = Math.Max(peak, control.AudioMeterInformation.MasterPeakValue); }
+            catch { }
+        }
+        Peak = peak;
+
+        if (!_isProcessing && _controls.Count > 0)
+        {
+            float current = ReadVolume();
             if (Math.Abs(current - _volume) > 0.01f)
             {
                 _volume = current;
                 OnPropertyChanged(nameof(Volume));
                 OnPropertyChanged(nameof(VolumePercent));
             }
-            var muted = _session.SimpleAudioVolume.Mute;
+
+            bool muted = _controls.All(SafeReadMute);
             if (muted != _isMuted) { _isMuted = muted; OnPropertyChanged(nameof(IsMuted)); }
         }
-        catch { }
+    }
+
+    private float ReadVolume()
+    {
+        if (_controls.Count == 0) return 1f;
+        try { return _controls.Average(c => c.SimpleAudioVolume.Volume); }
+        catch { return 1f; }
+    }
+
+    private static bool SafeReadMute(AudioSessionControl control)
+    {
+        try { return control.SimpleAudioVolume.Mute; }
+        catch { return false; }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
