@@ -30,9 +30,9 @@ internal sealed class AudioDspWaveProvider : IWaveProvider
         _sampleRate = input.WaveFormat.SampleRate;
     }
 
-    public int Read(byte[] buffer, int offset, int count)
+    public int Read(Span<byte> buffer)
     {
-        int read = _input.Read(buffer, offset, count);
+        int read = _input.Read(buffer);
         int aligned = read - read % sizeof(float);
         if (aligned <= 0) return read;
 
@@ -51,7 +51,7 @@ internal sealed class AudioDspWaveProvider : IWaveProvider
             _snapshotVersion = snapshot.Version;
         }
 
-        Span<float> samples = MemoryMarshal.Cast<byte, float>(buffer.AsSpan(offset, aligned));
+        Span<float> samples = MemoryMarshal.Cast<byte, float>(buffer[..aligned]);
         float outputGain = Math.Clamp(_volume(), 0f, 1f);
         float attack = MathF.Exp(-1f / (_sampleRate * 0.012f));
         float release = MathF.Exp(-1f / (_sampleRate * 0.160f));
