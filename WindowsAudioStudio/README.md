@@ -18,3 +18,6 @@ dotnet restore
 dotnet build -c Release
 dotnet run
 ```
+
+
+CI validation is configured in `.github/workflows/build-audio-studio.yml`.
