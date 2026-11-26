@@ -2,7 +2,11 @@ name: Build Windows Audio Studio
 on:
   push:
     branches:
-      - audio-studio/**
+      - "audio-studio/**"
+    paths:
+      - "WindowsAudioStudio/**"
+      - ".github/workflows/build-audio-studio.yml"
+  pull_request:
     paths:
       - "WindowsAudioStudio/**"
       - ".github/workflows/build-audio-studio.yml"
