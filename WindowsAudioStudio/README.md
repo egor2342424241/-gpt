@@ -21,3 +21,5 @@ dotnet run
 
 
 CI validation is configured in `.github/workflows/build-audio-studio.yml`.
+
+Build verification note: the NAudio expired-session enum uses `AudioSessionStateExpired`.
