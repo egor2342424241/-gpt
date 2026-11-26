@@ -1,25 +1,35 @@
 # Windows Audio Studio
 
-Начальная WPF-версия на .NET 8 с NAudio.
+Windows desktop audio processor based on WPF, .NET 9 and NAudio 3.3.
 
-## Уже реализовано
-- Обнаружение аудиосессий устройства вывода по умолчанию через Windows Audio Session API.
-- Отображение названия приложения, PID и уровня сигнала.
-- Индивидуальная громкость и Mute каждой найденной сессии.
-- Макет 20-полосного EQ и базовые пресеты (пока визуальная заготовка).
+## Audio engine
 
-## Важное ограничение
-Эквалайзер и переключатели эффектов пока не обрабатывают звук. Windows Audio Session API позволяет перечислять сессии, менять громкость и Mute, но не вставляет произвольный DSP в аудиопоток процесса. Для настоящего индивидуального EQ потребуется process-loopback capture и отдельный управляемый маршрут вывода (обычно виртуальное аудиоустройство/драйвер). Нельзя возвращать захваченный общий loopback на тот же endpoint без защиты от обратной связи.
+- Enumerates Windows render audio sessions and groups them by process ID.
+- Captures each selected process tree using WASAPI process-loopback capture.
+- Routes the captured stream into an independent DSP chain and renders it to the default output endpoint.
+- Temporarily mutes the original app session while processing is active and restores its user volume/mute values when processing stops.
+- Keeps a separate DSP profile for every process.
 
-## Сборка
-Windows 10/11, .NET 8 SDK:
+## DSP currently implemented
+
+- 20-band peaking equalizer: 31 Hz to 20 kHz, ±12 dB.
+- Bass boost.
+- Stereo width (mid/side).
+- Delay/reverb.
+- Compressor.
+- Soft limiter.
+- Per-application output volume and mute.
+
+Process-loopback capture requires Windows 10 version 2004 (build 19041) or newer. It uses Windows `ActivateAudioInterfaceAsync` through NAudio's `WasapiRecorderBuilder.WithProcessLoopback`.
+
+## Build
+
+Install the .NET 9 SDK and build on Windows:
+
 ```powershell
-dotnet restore
-dotnet build -c Release
-dotnet run
+dotnet restore WindowsAudioStudio/WindowsAudioStudio.csproj
+dotnet build WindowsAudioStudio/WindowsAudioStudio.csproj -c Release
+dotnet publish WindowsAudioStudio/WindowsAudioStudio.csproj -c Release -r win-x64 --self-contained true
 ```
 
-
-CI validation is configured in `.github/workflows/build-audio-studio.yml`.
-
-Build verification note: the NAudio expired-session enum uses `AudioSessionStateExpired`.
+A Windows GitHub Actions workflow builds and uploads a self-contained x64 artifact for each change to this branch.
