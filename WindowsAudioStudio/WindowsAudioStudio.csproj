@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>WindowsAudioStudio</AssemblyName>
+    <RootNamespace>WindowsAudioStudio</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="3.3.0" />
+  </ItemGroup>
+</Project>
