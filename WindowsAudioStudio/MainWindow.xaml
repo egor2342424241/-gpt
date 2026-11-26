@@ -1,50 +1,79 @@
-<Window x:Class="WindowsAudioStudio.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Windows Audio Studio" Height="900" Width="1500" MinHeight="700" MinWidth="1100" Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
-  <Grid Margin="18">
+<Window x:Class="WindowsAudioStudio.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Windows Audio Studio" Width="1180" Height="760"
+        MinWidth="900" MinHeight="620" WindowStartupLocation="CenterScreen"
+        Background="#F3F5F7" Foreground="#20242A">
+  <Grid Margin="16">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-    <DockPanel Margin="4,0,4,16">
-      <StackPanel DockPanel.Dock="Left"><TextBlock Text="WINDOWS AUDIO STUDIO" FontSize="21" FontWeight="SemiBold"/><TextBlock x:Name="DeviceLabel" Text="Подключение к аудиоустройству..." Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/></StackPanel>
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"><Button Content="Обновить" Click="Refresh_Click"/><Button Content="Сбросить EQ" Click="ResetEq_Click"/></StackPanel>
+    <DockPanel Margin="0,0,0,14">
+      <StackPanel>
+        <TextBlock Text="Windows Audio Studio" FontSize="22" FontWeight="SemiBold"/>
+        <TextBlock x:Name="DeviceLabel" Text="Подключение к устройству вывода..." Foreground="#68717D" Margin="0,3,0,0"/>
+      </StackPanel>
+      <Button DockPanel.Dock="Right" Content="Обновить" Padding="18,8" Click="Refresh_Click"/>
     </DockPanel>
     <Grid Grid.Row="1">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-      <Border Grid.Column="0" Background="{StaticResource Panel}" CornerRadius="16" Padding="14" Margin="0,0,12,0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="310"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border Grid.Column="0" Background="White" CornerRadius="10" Padding="12" Margin="0,0,12,0">
         <DockPanel>
-          <StackPanel DockPanel.Dock="Top"><TextBlock Text="АКТИВНЫЕ ИСТОЧНИКИ" FontSize="13" FontWeight="Bold" Foreground="{StaticResource TextMuted}"/><TextBlock Text="Громкость каждой аудиосессии Windows" FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,4,0,12"/></StackPanel>
-          <ListBox x:Name="SessionsList" ItemsSource="{Binding Sessions}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="SessionsList_SelectionChanged">
-            <ListBox.ItemTemplate><DataTemplate>
-              <Border Background="{StaticResource Panel2}" CornerRadius="10" Padding="10" Margin="0,3">
-                <StackPanel>
-                  <DockPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding VolumePercent, StringFormat={}{0}%}" DockPanel.Dock="Right" Foreground="{StaticResource TextMuted}"/></DockPanel>
-                  <Slider Minimum="0" Maximum="1" Value="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"/>
-                  <DockPanel><TextBlock Text="{Binding ProcessName}" FontSize="10" Foreground="{StaticResource TextMuted}"/><CheckBox Content="Mute" IsChecked="{Binding IsMuted}" DockPanel.Dock="Right" Foreground="{StaticResource TextMuted}"/></DockPanel>
-                  <ProgressBar Height="4" Maximum="1" Value="{Binding Peak}" Margin="0,7,0,0"/>
-                </StackPanel>
-              </Border>
-            </DataTemplate></ListBox.ItemTemplate>
+          <TextBlock DockPanel.Dock="Top" Text="ПРИЛОЖЕНИЯ" FontSize="12" FontWeight="Bold" Foreground="#68717D" Margin="2,2,0,10"/>
+          <ListBox x:Name="SessionsList" ItemsSource="{Binding Sessions}" Background="Transparent" BorderThickness="0"
+                   SelectionChanged="SessionsList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Border Background="#F6F7F9" CornerRadius="8" Padding="9" Margin="0,3">
+                  <StackPanel>
+                    <DockPanel>
+                      <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="185"/>
+                      <CheckBox DockPanel.Dock="Right" Content="DSP" IsChecked="{Binding IsProcessing, Mode=TwoWay}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock Text="{Binding ProcessName}" FontSize="10" Foreground="#78818D" Margin="0,2,0,5"/>
+                    <DockPanel>
+                      <Slider Minimum="0" Maximum="1" Value="{Binding Volume, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Width="190"/>
+                      <TextBlock Text="{Binding VolumePercent, StringFormat={}{0}%}" Margin="5,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                    </DockPanel>
+                    <DockPanel Margin="0,2,0,0">
+                      <ProgressBar Height="4" Maximum="1" Value="{Binding Peak}" VerticalAlignment="Center" Width="180"/>
+                      <CheckBox DockPanel.Dock="Right" Content="Mute" IsChecked="{Binding IsMuted, Mode=TwoWay}" FontSize="10"/>
+                    </DockPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
           </ListBox>
         </DockPanel>
       </Border>
       <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
         <StackPanel>
-          <Border Background="{StaticResource Panel}" CornerRadius="16" Padding="18" Margin="0,0,0,12">
+          <Border Background="White" CornerRadius="10" Padding="14" Margin="0,0,0,12">
             <StackPanel>
-              <DockPanel><StackPanel><TextBlock Text="20-BAND EQUALIZER" FontSize="17" FontWeight="Bold"/><TextBlock x:Name="SelectedSessionLabel" Text="Глобальная панель настроек · EQ пока демонстрационный" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/></StackPanel>
-                <ComboBox x:Name="PresetCombo" Width="170" SelectedIndex="0" VerticalAlignment="Center" SelectionChanged="PresetCombo_SelectionChanged"><ComboBoxItem Content="Flat"/><ComboBoxItem Content="Bass Boost"/><ComboBoxItem Content="Vocal"/><ComboBoxItem Content="Rock"/><ComboBoxItem Content="Electronic"/><ComboBoxItem Content="Custom"/></ComboBox>
+              <DockPanel>
+                <StackPanel>
+                  <TextBlock Text="20-полосный эквалайзер" FontSize="17" FontWeight="SemiBold"/>
+                  <TextBlock x:Name="SelectedSessionLabel" Text="Выбери приложение слева" Foreground="#68717D" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Button DockPanel.Dock="Right" Content="Сбросить EQ" Padding="12,6" Click="ResetEq_Click" VerticalAlignment="Center"/>
               </DockPanel>
-              <UniformGrid x:Name="EqGrid" Rows="1" Margin="0,24,0,0"/>
-              <TextBlock Text="−12 dB                                      0 dB                                      +12 dB" Foreground="{StaticResource TextMuted}" FontSize="10" Margin="0,8,0,0"/>
+              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <UniformGrid x:Name="EqGrid" Rows="1" Margin="0,15,0,0"/>
+              </ScrollViewer>
+              <TextBlock Text="Диапазон каждой полосы: −12…+12 dB" FontSize="10" Foreground="#78818D" Margin="0,7,0,0"/>
             </StackPanel>
           </Border>
-          <TextBlock Text="ЗВУКОВЫЕ МОДУЛИ" FontSize="13" FontWeight="Bold" Foreground="{StaticResource TextMuted}" Margin="4,4,0,8"/>
-          <UniformGrid Columns="3">
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Bass Boost"/><TextBlock Text="Усиление низких частот" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Surround"/><TextBlock Text="Пространственная обработка" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Stereo Width"/><TextBlock Text="Ширина стерео" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Reverb"/><TextBlock Text="Реверберация" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Compressor"/><TextBlock Text="Динамическая компрессия" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-            <Border Background="{StaticResource Panel}" CornerRadius="12" Padding="14" Margin="0,0,8,8"><StackPanel><CheckBox Content="Limiter"/><TextBlock Text="Защита от перегрузки" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="0,6"/></StackPanel></Border>
-          </UniformGrid>
-          <TextBlock Text="Следующий этап: DSP-движок и маршрутизация обработанного сигнала." Foreground="{StaticResource TextMuted}" Margin="4,10,0,20" TextWrapping="Wrap"/>
+          <Border Background="White" CornerRadius="10" Padding="14">
+            <StackPanel>
+              <TextBlock Text="DSP-эффекты" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10"/>
+              <WrapPanel>
+                <CheckBox x:Name="BassBoostBox" Content="Bass Boost" Tag="BassBoost" Margin="0,0,20,10" Checked="EffectChanged" Unchecked="EffectChanged"/>
+                <CheckBox x:Name="StereoWidthBox" Content="Stereo Width" Tag="StereoWidth" Margin="0,0,20,10" Checked="EffectChanged" Unchecked="EffectChanged"/>
+                <CheckBox x:Name="ReverbBox" Content="Reverb" Tag="Reverb" Margin="0,0,20,10" Checked="EffectChanged" Unchecked="EffectChanged"/>
+                <CheckBox x:Name="CompressorBox" Content="Compressor" Tag="Compressor" Margin="0,0,20,10" Checked="EffectChanged" Unchecked="EffectChanged"/>
+                <CheckBox x:Name="LimiterBox" Content="Limiter" Tag="Limiter" Margin="0,0,20,10" Checked="EffectChanged" Unchecked="EffectChanged"/>
+              </WrapPanel>
+              <TextBlock x:Name="StatusLabel" Text="Выбери приложение и включи DSP рядом с его названием." Foreground="#68717D" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+            </StackPanel>
+          </Border>
         </StackPanel>
       </ScrollViewer>
     </Grid>
